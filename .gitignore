@@ -1,0 +1,12 @@
+
+# macOS Finder metadata
+.DS_Store
+
+# Dart workspace cache
+.dart_tool/
+
+# FVM Version Cache
+.fvm/
+
+# Personal Claude Code settings
+.claude/settings.local.json

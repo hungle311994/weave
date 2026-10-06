@@ -1,0 +1,9 @@
+name: weave_workspace
+publish_to: none
+
+environment:
+  sdk: ^3.13.5
+
+workspace:
+  - apps/*
+  - packages/*

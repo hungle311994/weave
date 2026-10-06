@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": ["Bash(fvm dart format *)", "Bash(fvm dart analyze *)", "Bash(fvm dart test *)", "Bash(fvm flutter test *)", "Bash(fvm flutter pub get *)", "Bash(fvm dart run tool/generate_icons.dart *)", "Bash(npx --yes prettier@3 --write *)", "Bash(git status *)", "Bash(git diff *)"],
+    "ask": ["Bash(git commit *)", "Bash(git push *)", "Bash(fvm flutter pub add *)", "Bash(fvm dart pub add *)"]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|MultiEdit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/format-edited-file.sh",
+            "timeout": 60
+          }
+        ]
+      }
+    ]
+  }
+}

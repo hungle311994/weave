@@ -1,0 +1,16 @@
+name: weave_security
+resolution: workspace
+description: Sandbox, approval, workspace scope, and secret redaction rules for Weave.
+version: 1.0.0
+# repository: https://github.com/my_org/my_repo
+
+environment:
+  sdk: ^3.13.5
+
+# Add regular dependencies here.
+dependencies:
+  path: ^1.9.1
+
+dev_dependencies:
+  lints: ^6.0.0
+  test: ^1.25.6
