@@ -20,6 +20,7 @@ enum WeaveIcons {
   circle('circle'),
   clock('clock'),
   close('close'),
+  copy('copy'),
   download('download'),
   eye('eye'),
   file('file'),
@@ -30,6 +31,7 @@ enum WeaveIcons {
   grid('grid'),
   grip('grip'),
   history('history'),
+  home('home'),
   info('info'),
   layers('layers'),
   listChecks('list_checks'),
@@ -49,6 +51,7 @@ enum WeaveIcons {
   stop('stop'),
   terminal('terminal'),
   thinking('thinking'),
+  trash('trash'),
   user('user');
 
   const WeaveIcons(this.fileName);

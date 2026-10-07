@@ -1,8 +1,10 @@
 import 'dart:async';
 
+import 'agent_account.dart';
 import 'agent_adapter.dart';
 import 'agent_availability.dart';
 import 'agent_event.dart';
+import 'agent_plan_usage.dart';
 import 'agent_run_request.dart';
 
 /// Produces the summary of one scripted run, or throws to fail it.
@@ -21,7 +23,23 @@ final class ScriptedAgentAdapter implements AgentAdapter {
     this.supportsMcp = true,
     this.usage,
     this.signInCommand,
+    this.planUsage,
+    this.account,
+    this.supportsAccounts = false,
+    this.accountInfo,
   }) : displayName = displayName ?? id;
+
+  @override
+  final AgentAccount? account;
+
+  @override
+  final bool supportsAccounts;
+
+  /// Returned by [readAccount] while [isAvailable].
+  AgentAccountInfo? accountInfo;
+
+  @override
+  Future<AgentAccountInfo?> readAccount() async => isAvailable ? accountInfo : null;
 
   @override
   final String id;
@@ -42,11 +60,30 @@ final class ScriptedAgentAdapter implements AgentAdapter {
   /// sign-in command instead of being missing.
   final String? signInCommand;
 
+  /// Returned by [readPlanUsage]; null means the agent reports no plan usage.
+  AgentPlanUsage? planUsage;
+
+  /// How often [readPlanUsage] was called.
+  int planUsageReads = 0;
+
+  @override
+  bool get reportsPlanUsage => planUsage != null;
+
+  @override
+  Future<AgentPlanUsage> readPlanUsage() async {
+    planUsageReads++;
+    return planUsage ?? (throw AgentPlanUsageException('$id does not report plan usage.'));
+  }
+
   /// Every request this adapter has started, in order.
   final List<AgentRunRequest> requests = <AgentRunRequest>[];
 
+  /// How often [checkAvailability] was called.
+  int availabilityChecks = 0;
+
   @override
   Future<AgentAvailability> checkAvailability() async {
+    availabilityChecks++;
     if (isAvailable) {
       return AgentAvailability.available(version: 'scripted', executablePath: 'scripted:$id');
     }

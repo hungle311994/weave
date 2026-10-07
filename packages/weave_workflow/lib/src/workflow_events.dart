@@ -4,6 +4,7 @@ import 'package:weave_storage/weave_storage.dart';
 
 import 'verification.dart';
 import 'workflow_checklist.dart';
+import 'workflow_repositories.dart';
 
 /// Progress of a running workflow, for the CLI, the desktop app, and logs.
 sealed class WorkflowEvent {
@@ -182,6 +183,10 @@ enum WorkflowCheckpointKind {
 
   /// An agent cannot continue (usage limit or sign-in); retry or cancel.
   agentUnavailable,
+
+  /// Choose which repositories of a multi-repository workflow the
+  /// implementer may edit; revise asks the planner for a new plan.
+  repositories,
 }
 
 /// The user's answer to a [WorkflowCheckpoint].
@@ -198,7 +203,7 @@ enum CheckpointDecision {
 
 /// A pause waiting for the user.
 final class WorkflowCheckpoint {
-  const WorkflowCheckpoint({required this.id, required this.kind, required this.title, required this.details, this.role});
+  const WorkflowCheckpoint({required this.id, required this.kind, required this.title, required this.details, this.role, this.repositories = const <WorkflowRepositoryChoice>[]});
 
   final String id;
   final WorkflowCheckpointKind kind;
@@ -207,6 +212,9 @@ final class WorkflowCheckpoint {
   /// What the user decides on: the plan, a change summary, or the error.
   final String details;
   final AgentRole? role;
+
+  /// The choices of a [WorkflowCheckpointKind.repositories] checkpoint.
+  final List<WorkflowRepositoryChoice> repositories;
 
   bool get allowsRevision => kind != WorkflowCheckpointKind.agentUnavailable;
 }

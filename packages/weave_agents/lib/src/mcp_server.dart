@@ -45,8 +45,9 @@ final class McpHttpTransport extends McpTransport {
 /// expanded only when an agent starts, so `mcp.json` never needs to hold a
 /// token itself.
 final class McpServerDefinition {
-  McpServerDefinition({required String id, required String displayName, required this.transport, List<String> linkPatterns = const <String>[], String? setupHint})
+  McpServerDefinition({required String id, required String displayName, required this.transport, List<String> linkPatterns = const <String>[], String? setupHint, String? description, this.brand})
     : id = _requireId(id),
+      description = description == null || description.trim().isEmpty ? null : description.trim(),
       displayName = _requireText(displayName, 'displayName'),
       linkPatterns = List<String>.unmodifiable(linkPatterns),
       setupHint = setupHint == null ? null : _requireText(setupHint, 'setupHint'),
@@ -59,6 +60,8 @@ final class McpServerDefinition {
     transport: McpHttpTransport(url: 'https://mcp.figma.com/mcp'),
     linkPatterns: const <String>[_figmaLinkPattern],
     setupHint: 'Uses Figma\'s hosted MCP server. Sign in to Figma from your agent the first time it connects.',
+    description: 'Design context from figma.com links',
+    brand: 'figma',
   );
 
   /// The MCP server built into the Figma desktop app.
@@ -68,6 +71,8 @@ final class McpServerDefinition {
     transport: McpHttpTransport(url: 'http://127.0.0.1:3845/mcp'),
     linkPatterns: const <String>[_figmaLinkPattern],
     setupHint: 'Open the Figma desktop app and enable its MCP server in Preferences before starting the workflow.',
+    description: 'Design context from the open Figma desktop app',
+    brand: 'figma',
   );
 
   factory McpServerDefinition.fromJson(Map<String, Object?> json) {
@@ -99,6 +104,8 @@ final class McpServerDefinition {
         },
         linkPatterns: strings(json['linkPatterns'], 'linkPatterns'),
         setupHint: setupHint is String ? setupHint : null,
+        description: json['description'] is String ? json['description']! as String : null,
+        brand: json['brand'] is String ? json['brand']! as String : null,
       );
     } on ArgumentError catch (error) {
       throw FormatException('Invalid MCP server: ${error.message}');
@@ -110,6 +117,13 @@ final class McpServerDefinition {
   /// Letters, digits, `_`, and `-`; agents use it in tool names like
   /// `mcp__<id>__tool`.
   final String id;
+
+  /// One line on what the server provides, e.g. "Design context from figma.com links".
+  final String? description;
+
+  /// The brand mark to show, by name (e.g. `figma`); looked up by the app,
+  /// never mapped from an ID in code.
+  final String? brand;
   final String displayName;
   final McpTransport transport;
 
@@ -120,6 +134,23 @@ final class McpServerDefinition {
 
   /// Whether [text] contains a link this server handles.
   bool matchesLinkIn(String text) => _linkExpressions.any((RegExp expression) => expression.hasMatch(text));
+
+  /// Whether [text] explicitly mentions MCP and names this server.
+  ///
+  /// This is only a suggestion signal. Callers must still ask the user before
+  /// enabling the server.
+  bool matchesMentionIn(String text) {
+    final String normalized = text.toLowerCase();
+    if (!RegExp(r'\bmcp\b', caseSensitive: false).hasMatch(normalized)) {
+      return false;
+    }
+    final Set<String> ignored = <String>{'app', 'desktop', 'mcp', 'server'};
+    final Set<String> names = <String>{
+      ...id.toLowerCase().split(RegExp(r'[-_]')),
+      ...displayName.toLowerCase().split(RegExp(r'[^a-z0-9]+')),
+    }..removeWhere((String name) => name.length < 3 || ignored.contains(name));
+    return names.any((String name) => RegExp('\\b${RegExp.escape(name)}\\b', caseSensitive: false).hasMatch(normalized));
+  }
 
   /// Every distinct link in [text] that this server handles.
   Set<String> linksIn(String text) => <String>{
@@ -143,10 +174,32 @@ final class McpServerDefinition {
       },
       linkPatterns: linkPatterns,
       setupHint: setupHint,
+      description: description,
+      brand: brand,
     );
   }
 
-  Map<String, Object?> toJson() => <String, Object?>{'id': id, 'displayName': displayName, 'transport': transport.toJson(), 'linkPatterns': linkPatterns, 'setupHint': setupHint};
+  /// Names of the `${NAME}` environment variables the server needs.
+  Set<String> get environmentVariables {
+    final List<String> values = switch (transport) {
+      McpStdioTransport(:final String command, :final List<String> arguments, :final Map<String, String> environment) => <String>[command, ...arguments, ...environment.values],
+      McpHttpTransport(:final String url, :final Map<String, String> headers) => <String>[url, ...headers.values],
+    };
+    return <String>{
+      for (final String value in values)
+        for (final RegExpMatch match in _variable.allMatches(value)) match[1]!,
+    };
+  }
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'id': id,
+    'displayName': displayName,
+    'description': ?description,
+    'brand': ?brand,
+    'transport': transport.toJson(),
+    'linkPatterns': linkPatterns,
+    'setupHint': setupHint,
+  };
 
   static final RegExp _variable = RegExp(r'\$\{([A-Za-z_][A-Za-z0-9_]*)\}');
   static final RegExp _idPattern = RegExp(r'^[a-z0-9][a-z0-9_-]{0,63}$');
@@ -193,13 +246,14 @@ final class McpRegistry {
   /// user can pick one.
   List<McpServerDefinition> suggestionsFor(String text, {Iterable<String> enabledIds = const <String>[]}) {
     final Set<String> enabled = enabledIds.toSet();
+    final bool mentionedServerIsEnabled = servers.any((McpServerDefinition server) => enabled.contains(server.id) && server.matchesMentionIn(text));
     final Set<String> coveredLinks = <String>{
       for (final McpServerDefinition server in servers)
         if (enabled.contains(server.id)) ...server.linksIn(text),
     };
     return <McpServerDefinition>[
       for (final McpServerDefinition server in servers)
-        if (!enabled.contains(server.id) && server.linksIn(text).any((String link) => !coveredLinks.contains(link))) server,
+        if (!enabled.contains(server.id) && (server.linksIn(text).any((String link) => !coveredLinks.contains(link)) || (!mentionedServerIsEnabled && server.matchesMentionIn(text)))) server,
     ];
   }
 }

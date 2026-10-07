@@ -76,13 +76,16 @@ class WeaveButton extends StatelessWidget {
             type: MaterialType.transparency,
             child: InkWell(
               onTap: onPressed,
+              mouseCursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.forbidden,
               borderRadius: radius,
               splashFactory: NoSplash.splashFactory,
               hoverColor: WeaveColors.onAccent.withValues(alpha: 0.06),
               highlightColor: WeaveColors.onAccent.withValues(alpha: 0.04),
               focusColor: WeaveColors.purple.withValues(alpha: 0.22),
-              child: SizedBox(
-                height: regular ? WeaveLayout.controlHeight : 32,
+              child: ConstrainedBox(
+                // Regular buttons never shrink below the design's narrowest
+                // dialog action, so "Save" beside "Cancel" keeps the same width.
+                constraints: BoxConstraints.tightFor(height: regular ? WeaveLayout.controlHeight : 32).copyWith(minWidth: regular ? WeaveLayout.buttonMinWidth : 0),
                 child: Padding(
                   padding: EdgeInsets.symmetric(horizontal: regular ? WeaveSpacing.s20 : WeaveSpacing.s12),
                   child: Row(

@@ -14,6 +14,9 @@ abstract final class WeaveColors {
   static const Color agentTile = Color(0xFF191426);
   static const Color stepActive = Color(0xFF183148);
 
+  /// Enabled configurable setting in the Settings screen.
+  static const Color settingEnabled = Color(0xFF213B36);
+
   // Borders and dividers.
   static const Color borderSubtle = Color(0xFF273249);
   static const Color border = Color(0xFF3A4660);
@@ -47,6 +50,15 @@ abstract final class WeaveColors {
   static const Color diffRemovedGutter = Color(0xFF4A1E2B);
   static const Color diffAdded = Color(0xFF10372F);
   static const Color diffAddedGutter = Color(0xFF15473C);
+  static const Color diffRemovedNumber = Color(0xFFE07A8E);
+
+  /// Side without a matching line, so the two columns stay aligned.
+  static const Color diffEmpty = Color(0xFF0B101B);
+  static const Color diffHunk = Color(0xFF141D31);
+  static const Color diffHunkText = Color(0xFF8C96B2);
+  static const Color diffOriginalHeader = Color(0xFF25171F);
+  static const Color diffUpdatedHeader = Color(0xFF10241F);
+  static const Color diffColumnDivider = Color(0xFF33405E);
 
   /// Background of a status pill or tinted box in [accent] (10 % in the design).
   static Color tint(Color accent, [double opacity = 0.1]) => accent.withValues(alpha: opacity);

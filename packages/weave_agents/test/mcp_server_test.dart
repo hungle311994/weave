@@ -89,6 +89,8 @@ void main() {
       expect(registry.suggestionsFor(request, enabledIds: <String>['figma-desktop']).map((McpServerDefinition server) => server.id), <String>['tracker']);
       expect(registry.suggestionsFor('Plain request'), isEmpty);
       expect(registry.suggestionsFor('https://www.figma.com/design/AbC123/Login', enabledIds: <String>['figma']), isEmpty);
+      expect(registry.suggestionsFor('Add the Figma MCP to this workflow').map((McpServerDefinition server) => server.id), <String>['figma', 'figma-desktop']);
+      expect(registry.suggestionsFor('Add the Figma MCP to this workflow', enabledIds: <String>['figma']), isEmpty);
       expect(McpServerDefinition.figma().linksIn('a https://figma.com/file/A1/x b https://figma.com/file/A1/x'), <String>{'https://figma.com/file/A1'});
       expect(() => registry.require('missing'), throwsStateError);
     });
@@ -182,5 +184,21 @@ void main() {
     expect(output, allOf(contains('https://mcp.example.com'), contains(SecretRedactor.placeholder), isNot(contains('token-value-987654'))));
     expect(File(configPath).existsSync(), isFalse);
     expect(adapter.supportsMcp, isTrue);
+  });
+
+  test('names the environment variables a server needs and keeps its description and brand', () {
+    final McpServerDefinition server = McpServerDefinition(
+      id: 'tracker',
+      displayName: 'Tracker',
+      description: 'Issues and project context',
+      brand: 'linear',
+      transport: McpHttpTransport(url: r'https://${TRACKER_HOST}/mcp', headers: const <String, String>{'Authorization': r'Bearer ${TRACKER_TOKEN}'}),
+    );
+
+    expect(server.environmentVariables, <String>{'TRACKER_HOST', 'TRACKER_TOKEN'});
+    final McpServerDefinition restored = McpServerDefinition.fromJson(server.toJson());
+    expect((restored.description, restored.brand), ('Issues and project context', 'linear'));
+    expect(server.resolve(const <String, String>{'TRACKER_HOST': 'h', 'TRACKER_TOKEN': 't'}).brand, 'linear');
+    expect(McpServerDefinition.figma().brand, 'figma');
   });
 }

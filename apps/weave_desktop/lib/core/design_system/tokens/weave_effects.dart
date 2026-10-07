@@ -41,10 +41,37 @@ abstract final class WeaveGradients {
 
 /// Animation durations and curves.
 abstract final class WeaveMotion {
+  static const Duration instant = Duration.zero;
   static const Duration fast = Duration(milliseconds: 120);
 
   /// Sidebar width changes and panel transitions.
   static const Duration standard = Duration(milliseconds: 200);
   static const Duration slow = Duration(milliseconds: 300);
+
+  /// One pass of a loading highlight, e.g. over a refreshing usage bar.
+  static const Duration sweep = Duration(milliseconds: 1200);
+
+  /// How long a floating sidebar stays after the pointer leaves it or its
+  /// rail item, so the pointer can move from one to the other.
+  static const Duration peekHideDelay = Duration(milliseconds: 220);
+
+  /// A floating sidebar fading and sliding in, and out a little faster.
+  static const Duration peekIn = Duration(milliseconds: 260);
+  static const Duration peekOut = Duration(milliseconds: 180);
+
+  /// How far, as a share of its width, a floating sidebar slides in from.
+  static const double peekSlide = 0.06;
+
+  /// Pause in typing before a search that leaves the Mac, e.g. the MCP Registry.
+  static const Duration searchDebounce = Duration(milliseconds: 400);
+
+  /// How long an overflowing title waits under the pointer before it
+  /// scrolls, and how long it rests at each end of a pass.
+  static const Duration marqueeDelay = Duration(milliseconds: 700);
+  static const Duration marqueePause = Duration(milliseconds: 1200);
+
+  /// Scroll speed of an overflowing title, in logical pixels per second;
+  /// slow enough to read, whatever the title's length.
+  static const double marqueeSpeed = 36;
   static const Curve curve = Curves.easeOutCubic;
 }

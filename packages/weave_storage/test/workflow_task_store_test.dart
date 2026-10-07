@@ -23,6 +23,25 @@ void main() {
     }
   });
 
+  test('deletes a task with everything stored beside it and leaves other tasks', () async {
+    await store.save(createTask(id: 'keep'));
+    await store.save(createTask(id: 'drop'));
+    final Directory dropped = workflowTaskDirectory(path.join(temporaryDirectory.path, 'workflows'), 'drop');
+    await File(path.join(dropped.path, 'artifacts', 'plan-0.md')).create(recursive: true);
+    await File(path.join(dropped.path, 'events.jsonl')).writeAsString('{}\n');
+
+    await store.delete('drop');
+
+    expect(await dropped.exists(), isFalse);
+    expect(await store.load('drop'), isNull);
+    expect((await store.list()).map((WorkflowTask task) => task.id), <String>['keep']);
+  });
+
+  test('deleting an unknown task does nothing', () async {
+    await store.delete('missing');
+    expect(await store.list(), isEmpty);
+  });
+
   test('saves and loads a workflow task', () async {
     final WorkflowTask task = createTask();
 

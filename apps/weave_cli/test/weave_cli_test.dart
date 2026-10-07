@@ -337,6 +337,33 @@ void main() {
       expect(out.toString(), allOf(contains('[checklist] 2 of 2 done'), contains('solo finished plan — 15 tokens'), contains('Usage: 75 tokens')));
     });
 
+    test('runs with another repository and asks which repositories may be edited', () async {
+      final Directory backend = await Directory(path.join(temporaryDirectory.path, 'backend')).create();
+      expect((await Process.run('git', <String>['init', '--quiet', '--initial-branch=main'], workingDirectory: backend.path)).exitCode, 0);
+      final List<AgentRunRequest> implementerRequests = <AgentRunRequest>[];
+      final ScriptedAgentAdapter agent = ScriptedAgentAdapter(
+        id: 'solo',
+        displayName: 'Solo Agent',
+        handler: (AgentRunRequest request, ScriptedAgentSession session) => switch (request.role) {
+          AgentRole.planner => '$checklistPlan\n## Repositories to change\n- backend: add notes.txt',
+          AgentRole.implementer => () {
+            implementerRequests.add(request);
+            File(path.join(backend.path, 'notes.txt')).writeAsStringSync('notes\n');
+            return 'T1: done\nTC1: done';
+          }(),
+          AgentRole.reviewer => 'T1: ok\nTC1: covered\nVERDICT: APPROVED',
+        },
+      );
+      input.add('a');
+
+      expect(await weave(<String>['run', '--also', backend.path, 'Add notes to the backend'], agents: <AgentAdapter>[agent]), ExitCodes.success, reason: '$out\n$error');
+
+      expect(out.toString(), allOf(contains('== Allow edits to these repositories?'), contains('- backend ('), contains('the plan changes it — add notes.txt'), contains('- repo ('), contains('read only')));
+      expect(implementerRequests, hasLength(2), reason: 'implement and self-review');
+      expect(implementerRequests.map((AgentRunRequest request) => request.additionalDirectories.single.writable), everyElement(isTrue), reason: 'approve allowed the proposed backend');
+      expect(File(path.join(backend.path, 'notes.txt')).existsSync(), isTrue);
+    });
+
     test('cancels at a checkpoint when input ends', () async {
       unawaited(input.close());
       expect(await weave(<String>['run', '--approve-changes', 'Add notes'], agents: <AgentAdapter>[planningAgent()]), ExitCodes.cancelled);

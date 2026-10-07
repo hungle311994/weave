@@ -8,6 +8,7 @@ export 'src/workflow_checklist.dart';
 export 'src/workflow_events.dart';
 export 'src/workflow_orchestrator.dart';
 export 'src/workflow_prompts.dart';
+export 'src/workflow_repositories.dart';
 export 'src/workflow_run_lock.dart';
 export 'src/workflow_run_state.dart';
 export 'src/workflow_settings.dart';

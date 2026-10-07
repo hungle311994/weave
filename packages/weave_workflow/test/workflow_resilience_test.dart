@@ -116,7 +116,10 @@ void main() {
       expect(run.usage.costUsd, closeTo(0.04, 1e-9));
       expect(run.usageByRole[AgentRole.implementer]!.totalTokens, 220);
       expect(run.history.whereType<WorkflowAgentFinished>().map((WorkflowAgentFinished event) => event.phase), <String>['plan', 'implement', 'self-review', 'review']);
-      expect((await runStates.load('task-1'))!.totalUsage.totalTokens, 440);
+      final WorkflowRunState savedState = (await runStates.load('task-1'))!;
+      expect(savedState.totalUsage.totalTokens, 440);
+      expect(savedState.agentUsageRecords.map((WorkflowAgentUsageRecord record) => record.agentId), <String>['planner', 'implementer', 'implementer', 'reviewer']);
+      expect(savedState.agentUsageRecords.fold<int>(0, (int total, WorkflowAgentUsageRecord record) => total + record.usage.totalTokens), 440);
     });
 
     test('stops when the token budget is exceeded', () async {
@@ -266,6 +269,37 @@ void main() {
       final WorkflowAgentSwitched switched = run.history.whereType<WorkflowAgentSwitched>().single;
       expect((switched.fromAgentId, switched.toAgentId), ('implementer', 'backup'));
       expect((await runStates.load('task-1'))!.activeAgents[AgentRole.implementer], 'backup');
+    });
+
+    test('moves on to another signed-in account of the same agent without a configured fallback', () async {
+      final ScriptedAgentAdapter limited = implementer(handler: (AgentRunRequest request, ScriptedAgentSession session) => throw const ScriptedAgentFailure('usage limit reached', kind: AgentFailureKind.rateLimit));
+      final ScriptedAgentAdapter otherAgent = implementer(id: 'other');
+      final ScriptedAgentAdapter signedOut = ScriptedAgentAdapter(
+        id: 'implementer-old',
+        isAvailable: false,
+        account: AgentAccount(id: 'implementer-old', agentId: 'implementer', name: 'Old'),
+        handler: (AgentRunRequest request, ScriptedAgentSession session) => '',
+      );
+      final ScriptedAgentAdapter work = ScriptedAgentAdapter(
+        id: 'implementer-work',
+        account: AgentAccount(id: 'implementer-work', agentId: 'implementer', name: 'Work'),
+        handler: implementer().handler,
+      );
+      final WorkflowRun run = await orchestratorFor(<AgentAdapter>[
+        planner(),
+        limited,
+        otherAgent,
+        signedOut,
+        work,
+        reviewer(<String>['VERDICT: APPROVED']),
+      ]).start(request: 'Add hello', repositoryPath: repository.path, settings: settingsFor());
+
+      expect((await run.result).status, WorkflowStatus.completed);
+      expect(otherAgent.requests, isEmpty, reason: 'a different agent is used only when configured as a fallback');
+      expect(signedOut.requests, isEmpty, reason: 'a signed-out account is skipped');
+      expect(work.requests, isNotEmpty);
+      final WorkflowAgentSwitched switched = run.history.whereType<WorkflowAgentSwitched>().single;
+      expect((switched.fromAgentId, switched.toAgentId), ('implementer', 'implementer-work'));
     });
 
     test('asks the user when no fallback is left, then retries', () async {

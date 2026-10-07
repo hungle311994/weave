@@ -63,6 +63,7 @@ class WeaveCard extends StatelessWidget {
               type: MaterialType.transparency,
               child: InkWell(
                 onTap: onTap,
+                mouseCursor: SystemMouseCursors.click,
                 borderRadius: corners,
                 splashFactory: NoSplash.splashFactory,
                 hoverColor: WeaveColors.onAccent.withValues(alpha: 0.04),

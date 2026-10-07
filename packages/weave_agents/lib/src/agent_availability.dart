@@ -4,7 +4,12 @@ final class AgentAvailability {
 
   factory AgentAvailability.available({required String version, required String executablePath}) => AgentAvailability._(isAvailable: true, version: _requireText(version, 'version'), executablePath: _requireText(executablePath, 'executablePath'), reason: null);
 
-  factory AgentAvailability.unavailable({required String reason}) => AgentAvailability._(isAvailable: false, version: null, executablePath: null, reason: _requireText(reason, 'reason'));
+  factory AgentAvailability.unavailable({required String reason, String? executablePath}) => AgentAvailability._(
+    isAvailable: false,
+    version: null,
+    executablePath: executablePath == null ? null : _requireText(executablePath, 'executablePath'),
+    reason: _requireText(reason, 'reason'),
+  );
 
   /// Installed but not signed in; the user must run [signInCommand] in a
   /// terminal. Weave never handles the credentials itself.
@@ -25,6 +30,9 @@ final class AgentAvailability {
   final String? signInCommand;
 
   bool get needsSignIn => signInCommand != null;
+
+  /// Whether an executable was found, even if its health check failed.
+  bool get isInstalled => executablePath != null;
 
   static String _requireText(String value, String name) {
     final String normalized = value.trim();

@@ -49,8 +49,17 @@ void main() {
       final AgentAvailability availability = AgentAvailability.unavailable(reason: 'Executable not found');
 
       expect(availability.isAvailable, isFalse);
+      expect(availability.isInstalled, isFalse);
       expect(availability.reason, 'Executable not found');
       expect(availability.version, isNull);
+    });
+
+    test('keeps installed separate from a failed health check', () {
+      final AgentAvailability availability = AgentAvailability.unavailable(reason: 'Version check failed', executablePath: '/usr/local/bin/agent');
+
+      expect(availability.isAvailable, isFalse);
+      expect(availability.isInstalled, isTrue);
+      expect(availability.executablePath, '/usr/local/bin/agent');
     });
   });
 

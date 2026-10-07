@@ -86,10 +86,14 @@ void main() {
     });
 
     test('presets declare how to check and sign in', () {
+      expect(AgentDefinition.claudeCode().installCommand, <String>['brew', 'install', '--cask', 'claude-code']);
+      expect(AgentDefinition.claudeCode().installOptions.map((AgentInstallOption option) => option.label), <String>['Homebrew']);
       expect(AgentDefinition.claudeCode().authStatusArguments, <String>['auth', 'status']);
       expect(AgentDefinition.claudeCode().authStatusJsonField, 'loggedIn');
       expect(AgentDefinition.claudeCode().signInCommand, <String>['claude', 'auth', 'login']);
       expect(AgentDefinition.codex().signInCommand, <String>['codex', 'login']);
+      expect(AgentDefinition.codex().installCommand, <String>['brew', 'install', '--cask', 'codex']);
+      expect(AgentDefinition.codex().installOptions.map((AgentInstallOption option) => option.label), <String>['Homebrew', 'npm']);
     });
   });
 

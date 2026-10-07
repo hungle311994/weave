@@ -305,7 +305,9 @@ final class _ConfigCommand extends Command<int> {
 final class _RunCommand extends Command<int> {
   _RunCommand(this.context) {
     _addSettingsOptions(argParser);
-    argParser.addFlag('no-mcp-prompt', negatable: false, help: 'Do not offer MCP servers for links in the request.');
+    argParser
+      ..addFlag('no-mcp-prompt', negatable: false, help: 'Do not offer MCP servers for links in the request.')
+      ..addMultiOption('also', help: 'Another repository the agents may read; after planning you choose which repositories may be edited. Repeatable.', splitCommas: false, valueHelp: 'path');
   }
 
   final _Context context;
@@ -338,7 +340,8 @@ final class _RunCommand extends Command<int> {
     if (!results.flag('no-mcp-prompt')) {
       settings = await _offerMcpServers(request, settings);
     }
-    final WorkflowRun run = await context.services.createOrchestrator(verifier: context.verifier).start(request: request, repositoryPath: root, settings: settings);
+    final List<String> also = <String>[for (final String path in results.multiOption('also')) await context.repositoryRoot(path)];
+    final WorkflowRun run = await context.services.createOrchestrator(verifier: context.verifier).start(request: request, repositoryPath: root, additionalRepositoryPaths: also, settings: settings);
 
     context.out
       ..writeln('Workflow ${run.task.id} in $root')
@@ -449,6 +452,9 @@ final class _EventPrinter {
     // checkpoint asynchronously, so re-checking it here would read the next
     // checkpoint's answer.
     while (run.pendingCheckpoint?.id == checkpoint.id) {
+      if (checkpoint.kind == WorkflowCheckpointKind.repositories) {
+        out.writeln('Approve allows edits to the repositories the plan changes; the others stay read-only.');
+      }
       out.write(checkpoint.allowsRevision ? '[a]pprove, [r]evise, or [c]ancel? ' : '[r]etry or [c]ancel? ');
       final String answer = ((await console.readLine()) ?? 'c').trim().toLowerCase();
       if (run.pendingCheckpoint?.id != checkpoint.id) {

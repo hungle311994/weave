@@ -106,10 +106,15 @@ final class FileWorkflowArtifactStore implements WorkflowArtifactStore {
     }
 
     final List<WorkflowArtifact> artifacts = <WorkflowArtifact>[];
-    await for (final FileSystemEntity entity in directory.list()) {
-      if (entity is File && entity.path.endsWith('.json')) {
-        artifacts.add(_decodeArtifact(await _readJsonObject(entity)));
+    try {
+      await for (final FileSystemEntity entity in directory.list()) {
+        if (entity is File && entity.path.endsWith('.json')) {
+          artifacts.add(_decodeArtifact(await _readJsonObject(entity)));
+        }
       }
+    } on PathNotFoundException {
+      // The workflow was deleted while it was being read.
+      return const <WorkflowArtifact>[];
     }
     artifacts.sort((WorkflowArtifact left, WorkflowArtifact right) {
       final int byCycle = left.cycle.compareTo(right.cycle);
@@ -149,7 +154,13 @@ final class FileWorkflowArtifactStore implements WorkflowArtifactStore {
       return const <WorkflowLogEntry>[];
     }
 
-    final List<String> lines = (await file.readAsLines()).where((String line) => line.trim().isNotEmpty).toList();
+    final List<String> lines;
+    try {
+      lines = (await file.readAsLines()).where((String line) => line.trim().isNotEmpty).toList();
+    } on PathNotFoundException {
+      // The workflow was deleted while it was being read.
+      return const <WorkflowLogEntry>[];
+    }
     final List<WorkflowLogEntry> entries = <WorkflowLogEntry>[];
     for (int index = 0; index < lines.length; index++) {
       try {

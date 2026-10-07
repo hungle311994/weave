@@ -10,3 +10,6 @@
 
 # Personal Claude Code settings
 .claude/settings.local.json
+
+# Flutter test output at the workspace root
+/build/

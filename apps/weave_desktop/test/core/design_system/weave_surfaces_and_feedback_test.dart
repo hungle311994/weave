@@ -43,6 +43,7 @@ void main() {
         children: <Widget>[
           WeaveStatusPill(label: 'Ready', tone: WeaveTone.success),
           WeaveStatusPill(label: 'Offline', tone: WeaveTone.danger),
+          WeaveStatusPill.compact(label: 'Compact', tone: WeaveTone.success),
         ],
       ),
     );
@@ -52,6 +53,8 @@ void main() {
     expect(tester.widget<Text>(find.text('Ready')).style?.fontWeight, FontWeight.w600);
     expect(tester.widget<Text>(find.text('Offline')).style?.color, WeaveColors.redStrong);
     expect(tester.getSize(find.byType(WeaveStatusPill).first).height, WeaveLayout.statusPillHeight);
+    expect(tester.getSize(find.widgetWithText(WeaveStatusPill, 'Compact')).height, WeaveLayout.compactStatusPillHeight);
+    expect(tester.widget<Text>(find.text('Compact')).style?.fontSize, WeaveTypography.micro.fontSize);
   });
 
   testWidgets('badges use the soft purple for the accent tone or a custom colour', (WidgetTester tester) async {
@@ -64,6 +67,7 @@ void main() {
           WeaveBadge(label: 'Implementer', color: WeaveColors.coral),
           WeaveCountBubble(count: 3),
           WeaveCountBubble(count: 120),
+          WeaveCountBubble.plan(key: Key('plan-step'), count: 1),
         ],
       ),
     );
@@ -71,5 +75,9 @@ void main() {
     expect(decorationAround(tester, find.text('Implementer')).color, WeaveColors.tint(WeaveColors.coral, 0.16));
     expect(find.text('3'), findsOneWidget);
     expect(find.text('99+'), findsOneWidget);
+    expect(tester.getSize(find.byKey(const Key('plan-step'))), const Size(WeaveSpacing.s32, WeaveSpacing.s32));
+    final BoxDecoration planStep = decorationAround(tester, find.descendant(of: find.byKey(const Key('plan-step')), matching: find.text('1')));
+    expect(planStep.color, WeaveColors.surfaceSelected);
+    expect((planStep.border! as Border).top.color, WeaveColors.purple);
   });
 }

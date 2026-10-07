@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../tokens/weave_colors.dart';
+import '../tokens/weave_effects.dart';
 import '../tokens/weave_spacing.dart';
 import '../tokens/weave_typography.dart';
 
@@ -38,6 +39,7 @@ abstract final class WeaveTheme {
       shadow: Color(0xFF000000),
       scrim: Color(0xB3000000),
     );
+
     final TextTheme text = TextTheme(
       displaySmall: WeaveTypography.display,
       headlineSmall: WeaveTypography.titleLarge,
@@ -51,15 +53,18 @@ abstract final class WeaveTheme {
       labelMedium: WeaveTypography.bodySmall,
       labelSmall: WeaveTypography.micro,
     );
+
     const OutlineInputBorder idleBorder = OutlineInputBorder(
       borderRadius: WeaveRadii.controlAll,
       borderSide: BorderSide(color: WeaveColors.border),
     );
+
     final ButtonStyle controlShape = ButtonStyle(
       minimumSize: const WidgetStatePropertyAll<Size>(Size(0, WeaveLayout.controlHeight)),
       padding: const WidgetStatePropertyAll<EdgeInsetsGeometry>(EdgeInsets.symmetric(horizontal: WeaveSpacing.s20)),
       shape: const WidgetStatePropertyAll<OutlinedBorder>(RoundedRectangleBorder(borderRadius: WeaveRadii.controlAll)),
       textStyle: WidgetStatePropertyAll<TextStyle>(WeaveTypography.label),
+      mouseCursor: WidgetStateProperty.resolveWith<MouseCursor>((Set<WidgetState> states) => states.contains(WidgetState.disabled) ? SystemMouseCursors.forbidden : SystemMouseCursors.click),
     );
 
     return ThemeData(
@@ -99,8 +104,12 @@ abstract final class WeaveTheme {
           color: WeaveColors.surfaceElevated,
           borderRadius: WeaveRadii.mdAll,
           border: Border.all(color: WeaveColors.borderSubtle),
+          boxShadow: WeaveShadows.tooltip,
         ),
-        textStyle: WeaveTypography.bodySmall.copyWith(color: WeaveColors.textPrimary, fontWeight: WeaveTypography.medium),
+        textStyle: WeaveTypography.bodySmall.copyWith(
+          color: WeaveColors.textPrimary,
+          fontWeight: WeaveTypography.medium,
+        ),
         padding: const EdgeInsets.symmetric(horizontal: WeaveSpacing.s10, vertical: WeaveSpacing.s6),
         waitDuration: const Duration(milliseconds: 400),
       ),
@@ -127,9 +136,20 @@ abstract final class WeaveTheme {
           borderSide: BorderSide(color: WeaveColors.redStrong),
         ),
       ),
-      textSelectionTheme: TextSelectionThemeData(cursorColor: WeaveColors.purple, selectionColor: WeaveColors.purple.withValues(alpha: 0.35), selectionHandleColor: WeaveColors.purple),
+      textSelectionTheme: TextSelectionThemeData(
+        cursorColor: WeaveColors.purple,
+        selectionColor: WeaveColors.purple.withValues(alpha: 0.35),
+        selectionHandleColor: WeaveColors.purple,
+      ),
       filledButtonTheme: FilledButtonThemeData(
-        style: controlShape.merge(FilledButton.styleFrom(backgroundColor: WeaveColors.purple, foregroundColor: WeaveColors.onAccent, disabledBackgroundColor: WeaveColors.surfaceRaised, disabledForegroundColor: WeaveColors.textDisabled)),
+        style: controlShape.merge(
+          FilledButton.styleFrom(
+            backgroundColor: WeaveColors.purple,
+            foregroundColor: WeaveColors.onAccent,
+            disabledBackgroundColor: WeaveColors.surfaceRaised,
+            disabledForegroundColor: WeaveColors.textDisabled,
+          ),
+        ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: controlShape.merge(
@@ -170,8 +190,17 @@ abstract final class WeaveTheme {
         ),
         textStyle: WeaveTypography.bodyStrong,
       ),
-      progressIndicatorTheme: const ProgressIndicatorThemeData(color: WeaveColors.purple, linearTrackColor: WeaveColors.borderSubtle, circularTrackColor: WeaveColors.borderSubtle),
-      scrollbarTheme: ScrollbarThemeData(thumbColor: WidgetStatePropertyAll<Color>(WeaveColors.border.withValues(alpha: 0.8)), radius: const Radius.circular(WeaveRadii.pill), thickness: const WidgetStatePropertyAll<double>(6)),
+      progressIndicatorTheme: const ProgressIndicatorThemeData(
+        color: WeaveColors.purple,
+        linearTrackColor: WeaveColors.borderSubtle,
+        circularTrackColor: WeaveColors.borderSubtle,
+      ),
+      scrollbarTheme: ScrollbarThemeData(
+        thumbColor: WidgetStatePropertyAll<Color>(WeaveColors.border.withValues(alpha: 0.8)),
+        radius: const Radius.circular(WeaveRadii.pill),
+        thickness: const WidgetStatePropertyAll<double>(WeaveLayout.scrollbarThickness),
+        crossAxisMargin: WeaveLayout.scrollbarMargin,
+      ),
     );
   }
 }

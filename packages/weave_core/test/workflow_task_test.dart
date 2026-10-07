@@ -81,4 +81,21 @@ void main() {
       expect(() => createTask().transitionTo(WorkflowStatus.planning, at: createdAt.subtract(const Duration(seconds: 1))), throwsArgumentError);
     });
   });
+
+  group('additional repositories', () {
+    test('keep their order, drop duplicates and the primary repository, and survive transitions', () {
+      final WorkflowTask task = WorkflowTask.create(id: 'task-2', request: 'Add the API', repositoryPath: '/projects/flutter', additionalRepositoryPaths: const <String>[' /projects/backend ', '/projects/flutter', '/projects/backend', '/projects/admin'], createdAt: createdAt);
+
+      expect(task.additionalRepositoryPaths, <String>['/projects/backend', '/projects/admin']);
+      expect(task.repositoryPaths, <String>['/projects/flutter', '/projects/backend', '/projects/admin']);
+      expect(task.hasMultipleRepositories, isTrue);
+      expect(task.transitionTo(WorkflowStatus.planning, at: createdAt).additionalRepositoryPaths, task.additionalRepositoryPaths);
+      expect(() => task.additionalRepositoryPaths.add('/x'), throwsUnsupportedError);
+    });
+
+    test('a single-repository task has none', () {
+      expect(createTask().additionalRepositoryPaths, isEmpty);
+      expect(createTask().hasMultipleRepositories, isFalse);
+    });
+  });
 }

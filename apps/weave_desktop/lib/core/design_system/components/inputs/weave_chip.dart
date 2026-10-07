@@ -4,6 +4,7 @@ import '../../icons/weave_icons.dart';
 import '../../tokens/weave_colors.dart';
 import '../../tokens/weave_spacing.dart';
 import '../../tokens/weave_typography.dart';
+import '../overlays/weave_tooltip.dart';
 
 enum WeaveChipShape {
   /// 8 px corners on a recessed background, e.g. a context file in the composer.
@@ -48,10 +49,11 @@ class WeaveChip extends StatelessWidget {
           ),
           if (onRemove != null) ...<Widget>[
             const SizedBox(width: WeaveSpacing.s6),
-            Tooltip(
+            WeaveTooltip(
               message: 'Remove $label',
               child: InkWell(
                 onTap: onRemove,
+                mouseCursor: SystemMouseCursors.click,
                 borderRadius: WeaveRadii.xsAll,
                 splashFactory: NoSplash.splashFactory,
                 child: const Padding(

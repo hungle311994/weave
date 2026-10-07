@@ -14,8 +14,25 @@ void main() {
     expect((decoration.border! as Border).top.color, WeaveColors.purple);
     expect(tester.getSize(find.byType(WeaveButton)).height, WeaveLayout.controlHeight);
     expect(find.byType(WeaveIcon), findsOneWidget);
+    expect(tester.widget<InkWell>(find.byType(InkWell)).mouseCursor, SystemMouseCursors.click);
     await tester.tap(find.text('Start workflow'));
     expect(taps, 1);
+  });
+
+  testWidgets('regular buttons keep the dialog minimum width; small buttons hug their label', (WidgetTester tester) async {
+    await pumpComponent(
+      tester,
+      Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          WeaveButton.primary(key: const Key('save'), label: 'Save', onPressed: () {}),
+          WeaveButton(key: const Key('ok'), label: 'OK', size: WeaveButtonSize.small, onPressed: () {}),
+        ],
+      ),
+    );
+    expect(tester.getSize(find.byKey(const Key('save'))).width, WeaveLayout.buttonMinWidth);
+    expect(tester.getSize(find.byKey(const Key('ok'))).width, lessThan(WeaveLayout.buttonMinWidth));
+    expect(tester.getCenter(find.text('Save')).dx, tester.getCenter(find.byKey(const Key('save'))).dx, reason: 'the label stays centred in the wider button');
   });
 
   testWidgets('each variant uses its design colours', (WidgetTester tester) async {
@@ -42,6 +59,7 @@ void main() {
   testWidgets('a disabled button is dimmed and ignores taps', (WidgetTester tester) async {
     await pumpComponent(tester, const WeaveButton.primary(label: 'Approve', onPressed: null));
     expect(tester.widget<Opacity>(find.ancestor(of: find.text('Approve'), matching: find.byType(Opacity))).opacity, 0.45);
+    expect(tester.widget<InkWell>(find.byType(InkWell)).mouseCursor, SystemMouseCursors.forbidden);
     await tester.tap(find.text('Approve'));
     expect(tester.getSemantics(find.byType(WeaveButton)), isSemantics(isButton: true, hasEnabledState: true, isEnabled: false));
   });
@@ -75,6 +93,7 @@ void main() {
     expect((bordered.border! as Border).top.color, WeaveColors.borderSubtle);
     final BoxDecoration selected = decorationAround(tester, find.byType(WeaveIcon).last);
     expect(selected.color, WeaveColors.surfaceSelected);
+    expect(tester.widgetList<InkWell>(find.byType(InkWell)).every((InkWell inkWell) => inkWell.mouseCursor == SystemMouseCursors.click), isTrue);
     await tester.tap(find.byType(WeaveIconButton).first);
     expect(taps, 1);
   });

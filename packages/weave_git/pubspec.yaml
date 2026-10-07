@@ -1,6 +1,6 @@
 name: weave_git
 resolution: workspace
-description: Read-only Git inspection and approval-gated commits for Weave.
+description: Git repository setup, read-only inspection, and approval-gated commits for Weave.
 version: 1.0.0
 # repository: https://github.com/my_org/my_repo
 

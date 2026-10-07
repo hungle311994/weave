@@ -27,7 +27,7 @@ Fixed guards, independent of any agent:
 | `packages/weave_core`     | Workflow task model and state machine.                                                                          |
 | `packages/weave_security` | Sandbox modes, approval policy, Git command classification, workspace scope, secret redaction.                  |
 | `packages/weave_agents`   | Provider-neutral agent contracts; agents and MCP servers as data; process execution; Codex/Claude Code presets. |
-| `packages/weave_git`      | Read-only status and diff; approval-gated commit.                                                               |
+| `packages/weave_git`      | User-directed clone setup; read-only status and diff; approval-gated commit.                                    |
 | `packages/weave_storage`  | Task, artifact, and event-log storage outside the repository.                                                   |
 | `packages/weave_workflow` | Orchestrator, prompts, verification, settings, shared services.                                                 |
 | `apps/weave_cli`          | `weave` command-line interface.                                                                                 |
@@ -109,6 +109,7 @@ Figma presets are built in: `figma` (hosted, `https://mcp.figma.com/mcp`) and `f
 
 - Every child process (Git, agents, verification) is started with an executable and argument list — never `sh -c`. Inherited `GIT_*` variables are removed.
 - Git reads use `--no-optional-locks`, disable repository fsmonitor hooks, and diffs use `--no-ext-diff --no-textconv`; untracked symlinks are skipped.
+- Remote repositories are cloned only after the user selects a destination folder. Clone URLs cannot contain embedded credentials, query parameters, or fragments, and clone never modifies an existing working tree.
 - Agent output, artifacts, and logs pass through secret redaction (known token formats, credential assignments, credential-like environment values, MCP headers and env values). Diffs are sent to the reviewer but never logged.
 - The macOS app runs **without App Sandbox** so it can start Git, agent CLIs, and checks in any repository. Distribute it outside the Mac App Store, signed with a Developer ID and notarized.
 

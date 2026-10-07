@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as path;
@@ -26,6 +27,7 @@ AgentDefinition _custom({List<String> arguments = const <String>['run'], Map<San
         SandboxMode.workspaceWrite: <String>['--write', '{workingDirectory}'],
       },
   resumeArguments: resumeArguments,
+  installCommand: const <String>['brew', 'install', 'my-agent'],
   model: model,
 );
 
@@ -73,6 +75,16 @@ void main() {
       }
     });
 
+    test('supports multiple provider-published installation options and legacy commands', () {
+      final AgentDefinition codex = AgentDefinition.codex();
+      final AgentDefinition legacy = _custom();
+
+      expect(codex.installOptions.map((AgentInstallOption option) => option.commandText), <String>['brew install --cask codex', 'npm install -g @openai/codex@latest']);
+      expect(codex.installCommandText, 'brew install --cask codex');
+      expect(legacy.installOptions.single.label, 'Terminal');
+      expect(legacy.installCommandText, 'brew install my-agent');
+    });
+
     test('rejects malformed JSON definitions', () {
       final Map<String, Object?> valid = _custom().toJson();
 
@@ -82,6 +94,7 @@ void main() {
         <String, Object?>{...valid, 'sandboxArguments': <String, Object?>{}},
         <String, Object?>{...valid, 'outputFormat': 'xml'},
         <String, Object?>{...valid, 'executable': '../agent'},
+        <String, Object?>{...valid, 'installOptions': 'npm'},
       ]) {
         expect(() => AgentDefinition.fromJson(invalid), throwsFormatException, reason: '$invalid');
       }
@@ -93,6 +106,7 @@ void main() {
       expect(definition.model, 'fast');
       expect(definition.id, 'codex');
       expect(definition.withModel(null).model, isNull);
+      expect(definition.withModel(null).installCommand, definition.installCommand);
     });
   });
 
@@ -160,5 +174,47 @@ void main() {
     final List<AgentEvent> events = await execution.events.toList();
 
     expect((events.last as AgentCompletedEvent).summary, '[plan; echo injected]\n[read only]');
+  });
+
+  group('additional repositories', () {
+    AgentRunRequest request(AgentRole role, List<AgentDirectoryAccess> directories) => AgentRunRequest(
+      task: WorkflowTask.create(id: 'task-1', request: 'Add the API', repositoryPath: '/projects/flutter', createdAt: DateTime.utc(2026)),
+      role: role,
+      instructions: 'Do the work',
+      workingDirectory: '/projects/flutter',
+      additionalDirectories: directories,
+    );
+
+    test('Claude Code adds every other repository; Codex only the ones it may edit', () {
+      final List<AgentDirectoryAccess> directories = <AgentDirectoryAccess>[AgentDirectoryAccess(path: '/projects/backend', writable: true), AgentDirectoryAccess(path: '/projects/admin', writable: false)];
+
+      final List<String> claude = AgentDefinition.claudeCode().buildArguments(request(AgentRole.implementer, directories));
+      expect(claude.join(' '), contains('--add-dir /projects/backend --add-dir /projects/admin'));
+      final List<String> codex = AgentDefinition.codex().buildArguments(request(AgentRole.implementer, directories));
+      expect(codex.join(' '), contains('--add-dir /projects/backend'));
+      expect(codex, isNot(contains('/projects/admin')), reason: 'Codex reads outside its workspace already');
+    });
+
+    test('a read-only role can never be given a writable repository', () {
+      expect(() => request(AgentRole.reviewer, <AgentDirectoryAccess>[AgentDirectoryAccess(path: '/projects/backend', writable: true)]), throwsArgumentError);
+      expect(request(AgentRole.planner, <AgentDirectoryAccess>[AgentDirectoryAccess(path: '/projects/backend', writable: false)]).additionalDirectories.single.writable, isFalse);
+    });
+
+    test('the directory arguments are agent data that survive agents.json and a model change', () {
+      final AgentDefinition claude = AgentDefinition.claudeCode();
+      final AgentDefinition restored = AgentDefinition.fromJson(jsonDecode(jsonEncode(claude.toJson())) as Map<String, Object?>);
+
+      expect(restored.readableDirectoryArguments, <String>['--add-dir', '{directory}']);
+      expect(restored.writableDirectoryArguments, <String>['--add-dir', '{directory}']);
+      expect(claude.withModel('opus').readableDirectoryArguments, claude.readableDirectoryArguments);
+    });
+  });
+
+  test('presets name their vendor and brand mark as data, which survive agents.json', () {
+    expect((AgentDefinition.codex().vendor, AgentDefinition.codex().brand), ('OpenAI', 'openai'));
+    expect((AgentDefinition.claudeCode().vendor, AgentDefinition.claudeCode().brand), ('Anthropic', 'anthropic'));
+    final AgentDefinition restored = AgentDefinition.fromJson(jsonDecode(jsonEncode(AgentDefinition.codex().toJson())) as Map<String, Object?>);
+    expect((restored.vendor, restored.brand), ('OpenAI', 'openai'));
+    expect(AgentDefinition.codex().withModel('o3').brand, 'openai');
   });
 }

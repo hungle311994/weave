@@ -35,4 +35,23 @@ void main() {
 
     expect(() => codec.decode(json), throwsA(isA<WorkflowStorageFormatException>()));
   });
+
+  test('round-trips additional repositories and reads tasks saved before them', () {
+    const WorkflowTaskJsonCodec codec = WorkflowTaskJsonCodec();
+    final WorkflowTask task = WorkflowTask.create(id: 'multi', request: 'Add the API', repositoryPath: '/projects/flutter', additionalRepositoryPaths: const <String>['/projects/backend'], createdAt: DateTime.utc(2026, 10, 7));
+
+    final Map<String, Object> encoded = codec.encode(task);
+    expect(codec.decode(encoded).additionalRepositoryPaths, <String>['/projects/backend']);
+
+    final Map<String, Object?> legacy = Map<String, Object?>.of(codec.encode(WorkflowTask.create(id: 'single', request: 'Fix', repositoryPath: '/projects/flutter', createdAt: DateTime.utc(2026, 10, 7))));
+    expect(legacy.containsKey('additionalRepositoryPaths'), isFalse, reason: 'single-repository files keep their old shape');
+    expect(codec.decode(legacy).additionalRepositoryPaths, isEmpty);
+    expect(
+      () => codec.decode(<String, Object?>{
+        ...encoded,
+        'additionalRepositoryPaths': <Object?>[1],
+      }),
+      throwsA(isA<WorkflowStorageFormatException>()),
+    );
+  });
 }

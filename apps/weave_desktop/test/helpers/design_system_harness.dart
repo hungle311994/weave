@@ -6,6 +6,7 @@ import 'package:weave/core/design_system/design_system.dart';
 Future<void> pumpComponent(WidgetTester tester, Widget child) => tester.pumpWidget(
   MaterialApp(
     theme: WeaveTheme.dark(),
+    scrollBehavior: const WeaveScrollBehavior(),
     home: Scaffold(body: Center(child: child)),
   ),
 );

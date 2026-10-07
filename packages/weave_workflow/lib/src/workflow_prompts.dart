@@ -26,6 +26,7 @@ final class WorkflowPromptContext {
     this.verificationReport,
     this.diff,
     this.isDiffTruncated = false,
+    this.repositories = const <WorkflowPromptRepository>[],
   });
 
   final String request;
@@ -43,6 +44,21 @@ final class WorkflowPromptContext {
   final String? verificationReport;
   final String? diff;
   final bool isDiffTruncated;
+
+  /// Every repository of a multi-repository workflow, the working directory
+  /// first; empty for a single repository, whose prompts stay unchanged.
+  final List<WorkflowPromptRepository> repositories;
+}
+
+/// One repository as described to an agent.
+final class WorkflowPromptRepository {
+  const WorkflowPromptRepository({required this.name, required this.path, this.editable});
+
+  final String name;
+  final String path;
+
+  /// Whether the implementer may edit it; `null` before the user decided.
+  final bool? editable;
 }
 
 /// Builds the instructions sent to each role; replaceable per installation.
@@ -73,6 +89,31 @@ Rules:
 - Do not create planning, notes, or handoff files in the repository; Weave stores those outside it.
 - Never print secrets, tokens, or credentials.''';
 
+  /// `Repository: <path>`, or every repository with its access.
+  static String _repositories(WorkflowPromptContext context) {
+    if (context.repositories.isEmpty) {
+      return 'Repository: ${context.repositoryRoot}';
+    }
+    final StringBuffer lines = StringBuffer('Repositories (the first is your working directory):');
+    for (final WorkflowPromptRepository repository in context.repositories) {
+      final String access = switch (repository.editable) {
+        null => '',
+        true => ' — may edit',
+        false => ' — read only',
+      };
+      lines.write('\n- ${repository.name}: ${repository.path}$access');
+    }
+    return lines.toString();
+  }
+
+  static String _rules(WorkflowPromptContext context) => context.repositories.isEmpty ? _sharedRules : _sharedRules.replaceFirst('- Work only inside the repository at the path above.', '- Work only inside the repositories listed above, and edit only those marked "may edit"; read the others for reference.');
+
+  static const String _repositoryFormat = '''
+
+Then add this section, naming only the repositories your tasks change (Weave asks the user to allow edits to them; the others stay read-only):
+## Repositories to change
+- <repository name>: <what changes there>''';
+
   static const String _planFormat = '''
 Format the plan as Markdown with exactly these sections:
 ## Tasks
@@ -86,7 +127,7 @@ Cover the main path, edge cases, invalid input and errors, and regressions of ex
     final StringBuffer prompt = StringBuffer()
       ..writeln('You are the planner in a Weave workflow. Another agent will implement your plan and a third will review it.')
       ..writeln()
-      ..writeln('Repository: ${context.repositoryRoot}')
+      ..writeln(_repositories(context))
       ..writeln()
       ..writeln('Request:')
       ..writeln(context.request);
@@ -101,11 +142,14 @@ Cover the main path, edge cases, invalid input and errors, and regressions of ex
     }
     prompt
       ..writeln()
-      ..writeln(_sharedRules)
+      ..writeln(_rules(context))
       ..writeln('- You are read-only: inspect the code but do not modify any file.')
       ..writeln()
       ..writeln('Reply with a concise implementation plan: the files to change, edge cases, and how to verify the change.')
       ..write(_planFormat);
+    if (context.repositories.isNotEmpty) {
+      prompt.write(_repositoryFormat);
+    }
     return prompt.toString();
   }
 
@@ -114,7 +158,7 @@ Cover the main path, edge cases, invalid input and errors, and regressions of ex
       '''
 You are the plan reviewer in a Weave workflow. Check the plan below before any code is written.
 
-Repository: ${context.repositoryRoot}
+${_repositories(context)}
 
 Request:
 ${context.request}
@@ -122,7 +166,7 @@ ${context.request}
 Plan:
 ${context.plan ?? '(no plan)'}
 
-$_sharedRules
+${_rules(context)}
 - You are read-only: inspect the code but do not modify any file.
 
 Check that the tasks fully solve the request, fit the existing code, and that the test cases cover the main path, edge cases, errors, and regressions. List every missing task or test case.
@@ -133,7 +177,7 @@ End your reply with exactly one line: "VERDICT: APPROVED" or "VERDICT: CHANGES_R
     final StringBuffer prompt = StringBuffer()
       ..writeln('You are the implementer in a Weave workflow.')
       ..writeln()
-      ..writeln('Repository: ${context.repositoryRoot}')
+      ..writeln(_repositories(context))
       ..writeln()
       ..writeln('Request:')
       ..writeln(context.request)
@@ -160,7 +204,7 @@ End your reply with exactly one line: "VERDICT: APPROVED" or "VERDICT: CHANGES_R
     }
     prompt
       ..writeln()
-      ..writeln(_sharedRules)
+      ..writeln(_rules(context))
       ..writeln()
       ..writeln('Edit the files needed to complete the request and write an automated test for every test case (TC). Keep changes focused on the plan.')
       ..write('Reply with a short summary of what you changed, then one line per checklist item: "T1: done" or "T1: not done — <reason>".');
@@ -181,7 +225,7 @@ ${context.plan ?? '(no plan)'}
 $checklist
 Fix any bug, missing piece, missing test, or inconsistency you find directly in the files.
 
-$_sharedRules
+${_rules(context)}
 
 Reply with a short summary of the final state of your changes, then one line per checklist item: "T1: done" or "T1: not done — <reason>".''';
   }
@@ -193,7 +237,7 @@ Reply with a short summary of the final state of your changes, then one line per
     return '''
 You are the reviewer in a Weave workflow. Review the uncommitted changes in the repository.
 
-Repository: ${context.repositoryRoot}
+${_repositories(context)}
 
 Request:
 ${context.request}
@@ -210,7 +254,7 @@ ${context.verificationReport ?? 'Not run.'}
 Diff${context.isDiffTruncated ? ' (truncated; read the files for the rest)' : ''}:
 ${diff.isEmpty ? '(no changes)' : '```diff\n$diff\n```'}
 
-$_sharedRules
+${_rules(context)}
 - You are read-only: inspect the code but do not modify any file.
 
 Check correctness, completeness against the request, security, and tests. For every test case, confirm a test exercises it. List every required change.

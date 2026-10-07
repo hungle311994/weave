@@ -12,6 +12,7 @@ import 'verification.dart';
 import 'workflow_checklist.dart';
 import 'workflow_events.dart';
 import 'workflow_prompts.dart';
+import 'workflow_repositories.dart';
 import 'workflow_run_lock.dart';
 import 'workflow_run_state.dart';
 import 'workflow_settings.dart';
@@ -70,14 +71,20 @@ final class WorkflowOrchestrator {
   ///
   /// The returned run is already executing; listen to [WorkflowRun.events]
   /// or read [WorkflowRun.history] for progress.
-  Future<WorkflowRun> start({required String request, required String repositoryPath, required WorkflowSettings settings}) async {
+  ///
+  /// [additionalRepositoryPaths] adds further repositories: every agent may
+  /// read them, and after planning the user chooses which ones the
+  /// implementer may edit. Settings and verification belong to
+  /// [repositoryPath].
+  Future<WorkflowRun> start({required String request, required String repositoryPath, List<String> additionalRepositoryPaths = const <String>[], required WorkflowSettings settings}) async {
     if (request.trim().isEmpty) {
       throw const WorkflowStartException('The request must not be empty.');
     }
     final String repositoryRoot = await _git.findRepositoryRoot(repositoryPath);
+    final List<String> additionalRoots = <String>[for (final String path in additionalRepositoryPaths) await _git.findRepositoryRoot(path)];
     final List<McpServerDefinition> mcpServers = await _prepare(settings);
 
-    final WorkflowTask task = WorkflowTask.create(id: _createTaskId?.call() ?? _defaultTaskId(), request: request, repositoryPath: repositoryRoot, createdAt: _clock());
+    final WorkflowTask task = WorkflowTask.create(id: _createTaskId?.call() ?? _defaultTaskId(), request: request, repositoryPath: repositoryRoot, additionalRepositoryPaths: additionalRoots, createdAt: _clock());
     await _tasks.save(task);
     await _settingsStore?.saveForTask(task.id, settings);
     return _launch(task, settings, mcpServers, WorkflowRunState());
@@ -100,7 +107,9 @@ final class WorkflowOrchestrator {
     if (settings == null) {
       throw WorkflowStartException('The settings of workflow $taskId were not found, so it cannot resume.');
     }
-    await _git.findRepositoryRoot(task.repositoryPath);
+    for (final String repository in task.repositoryPaths) {
+      await _git.findRepositoryRoot(repository);
+    }
     final List<McpServerDefinition> mcpServers = await _prepare(settings);
     return _launch(task, settings, mcpServers, await _runStates?.load(taskId) ?? WorkflowRunState());
   }
@@ -156,7 +165,7 @@ final class WorkflowOrchestrator {
 }
 
 /// The user's answer to a checkpoint.
-typedef _CheckpointAnswer = ({CheckpointDecision decision, String? feedback});
+typedef _CheckpointAnswer = ({CheckpointDecision decision, String? feedback, Set<String>? repositories});
 
 /// A workflow in progress.
 final class WorkflowRun {
@@ -219,7 +228,7 @@ final class WorkflowRun {
     }
     final Completer<_CheckpointAnswer>? answer = _checkpointAnswer;
     if (answer != null && !answer.isCompleted) {
-      answer.complete((decision: CheckpointDecision.cancel, feedback: null));
+      answer.complete((decision: CheckpointDecision.cancel, feedback: null, repositories: null));
     }
     await _execution?.cancel();
   }
@@ -234,7 +243,11 @@ final class WorkflowRun {
   }
 
   /// Answers the pending checkpoint; [feedback] explains a revision.
-  void resolveCheckpoint(String checkpointId, CheckpointDecision decision, {String? feedback}) {
+  ///
+  /// For a [WorkflowCheckpointKind.repositories] checkpoint,
+  /// [editableRepositories] are the repositories the implementer may edit;
+  /// when omitted, the ones the plan proposed.
+  void resolveCheckpoint(String checkpointId, CheckpointDecision decision, {String? feedback, Set<String>? editableRepositories}) {
     final WorkflowCheckpoint? checkpoint = _checkpoint;
     final Completer<_CheckpointAnswer>? answer = _checkpointAnswer;
     if (checkpoint == null || checkpoint.id != checkpointId || answer == null || answer.isCompleted) {
@@ -243,8 +256,21 @@ final class WorkflowRun {
     if (decision == CheckpointDecision.revise && !checkpoint.allowsRevision) {
       throw ArgumentError.value(decision, 'decision', 'is not allowed for ${checkpoint.kind.name}');
     }
+    Set<String>? repositories;
+    if (checkpoint.kind == WorkflowCheckpointKind.repositories && decision == CheckpointDecision.approve) {
+      repositories =
+          editableRepositories ??
+          <String>{
+            for (final WorkflowRepositoryChoice choice in checkpoint.repositories)
+              if (choice.proposed) choice.path,
+          };
+      final Set<String> known = <String>{for (final WorkflowRepositoryChoice choice in checkpoint.repositories) choice.path};
+      if (repositories.isEmpty || !known.containsAll(repositories)) {
+        throw ArgumentError.value(editableRepositories, 'editableRepositories', 'must name at least one repository of this workflow');
+      }
+    }
     final String? trimmed = feedback?.trim();
-    answer.complete((decision: decision, feedback: trimmed == null || trimmed.isEmpty ? null : trimmed));
+    answer.complete((decision: decision, feedback: trimmed == null || trimmed.isEmpty ? null : trimmed, repositories: repositories));
   }
 
   DateTime _now() => _orchestrator._clock();
@@ -279,6 +305,13 @@ final class WorkflowRun {
         ..baselineCommit = head.commitSha;
       await _saveState();
     }
+    for (final String repository in _task.additionalRepositoryPaths) {
+      if (!_state.repositoryBaselines.containsKey(repository)) {
+        final GitHead head = (await _orchestrator._git.readSnapshot(repository)).head;
+        _state.repositoryBaselines[repository] = WorkflowRepositoryHead(branch: head.branch, commit: head.commitSha);
+        await _saveState();
+      }
+    }
     if (_task.status == WorkflowStatus.pending || _task.status == WorkflowStatus.planning || _state.plan == null) {
       await _plan();
     }
@@ -307,7 +340,7 @@ final class WorkflowRun {
     String? planFeedback;
     int planReviews = 0;
     while (true) {
-      final String before = await _fingerprint();
+      final Map<String, String> before = await _fingerprints();
       final AgentCompletedEvent plan = await _runAgent(AgentRole.planner, planFeedback == null ? 'plan' : 'revise plan', prompts.planner(_context(planFeedback: planFeedback)));
       await _requireUnchanged(before, AgentRole.planner);
       _state
@@ -320,7 +353,7 @@ final class WorkflowRun {
 
       if (settings.reviewPlan && planReviews < 2) {
         planReviews++;
-        final String beforeReview = await _fingerprint();
+        final Map<String, String> beforeReview = await _fingerprints();
         final AgentCompletedEvent critique = await _runAgent(AgentRole.reviewer, 'review plan', prompts.planReview(_context()));
         await _requireUnchanged(beforeReview, AgentRole.reviewer);
         await _saveArtifact(WorkflowArtifactKind.planReview, critique.summary);
@@ -337,6 +370,19 @@ final class WorkflowRun {
           continue;
         }
       }
+
+      if (_task.hasMultipleRepositories) {
+        final _CheckpointAnswer answer = await _askRepositories();
+        if (answer.decision == CheckpointDecision.revise) {
+          planFeedback = answer.feedback ?? 'Revise which repositories the plan changes.';
+          continue;
+        }
+        _state.editableRepositories = <String>[
+          for (final String repository in _task.repositoryPaths)
+            if (answer.repositories!.contains(repository)) repository,
+        ];
+        await _saveState();
+      }
       break;
     }
     await _transition(WorkflowStatus.readyForImplementation);
@@ -348,6 +394,10 @@ final class WorkflowRun {
     }
     final WorkflowPrompts prompts = _orchestrator.prompts;
     while (true) {
+      final Map<String, String> locked = await _fingerprints(<String>[
+        for (final String repository in _task.repositoryPaths)
+          if (!_editableRepositories.contains(repository)) repository,
+      ]);
       _updateChecklist(_state.checklist.start(agentFor(AgentRole.implementer)));
       final AgentCompletedEvent implementation = await _runAgent(AgentRole.implementer, 'implement', prompts.implementer(_implementContext()), resumeSessionId: _state.implementerSession);
       _state.implementerSession = implementation.sessionId ?? _state.implementerSession;
@@ -361,10 +411,10 @@ final class WorkflowRun {
       _updateChecklist(_state.checklist.applyImplementerReport(selfReview.summary, agentFor(AgentRole.implementer)));
       await _saveState();
       await _requireSameHead();
+      await _requireUnchanged(locked, AgentRole.implementer);
 
       if (settings.requireChangesApproval) {
-        final GitRepositorySnapshot snapshot = await _orchestrator._git.readSnapshot(_task.repositoryPath);
-        final String files = snapshot.entries.isEmpty ? 'No files changed.' : snapshot.entries.map((GitStatusEntry entry) => '- ${entry.path}').join('\n');
+        final String files = await _changedFiles();
         final _CheckpointAnswer answer = await _askUser(WorkflowCheckpointKind.changes, 'Approve the changes before review', '${selfReview.summary.trim()}\n\nChanged files:\n$files');
         if (answer.decision == CheckpointDecision.revise) {
           _state.feedback = 'The user asked for changes before review:\n${answer.feedback ?? 'Improve the changes.'}';
@@ -390,8 +440,8 @@ final class WorkflowRun {
     String? reviewSummary;
     ReviewVerdict verdict = ReviewVerdict.changesRequested;
     if (verificationPassed || !settings.skipReviewWhenVerificationFails) {
-      final GitDiff diff = await _orchestrator._git.readDiff(_task.repositoryPath, maxCharacters: _orchestrator.maxDiffCharacters);
-      final String before = await fingerprintRepository(diff.snapshot);
+      final Map<String, String> before = await _fingerprints();
+      final ({String patch, bool isTruncated}) diff = await _diff();
       final AgentCompletedEvent review = await _runAgent(
         AgentRole.reviewer,
         'review',
@@ -444,7 +494,41 @@ final class WorkflowRun {
     verificationReport: verificationReport,
     diff: diff,
     isDiffTruncated: isDiffTruncated,
+    repositories: _promptRepositories(),
   );
+
+  /// Repositories the implementer may edit: the user's choice in a
+  /// multi-repository workflow, otherwise the only repository.
+  List<String> get _editableRepositories => _task.hasMultipleRepositories ? _state.editableRepositories ?? <String>[_task.repositoryPath] : <String>[_task.repositoryPath];
+
+  List<WorkflowPromptRepository> _promptRepositories() {
+    if (!_task.hasMultipleRepositories) {
+      return const <WorkflowPromptRepository>[];
+    }
+    final Map<String, String> names = repositoryNames(_task.repositoryPaths);
+    final List<String>? editable = _state.editableRepositories;
+    return <WorkflowPromptRepository>[
+      for (final String repository in _task.repositoryPaths) WorkflowPromptRepository(name: names[repository]!, path: repository, editable: editable?.contains(repository)),
+    ];
+  }
+
+  /// Asks which repositories the implementer may edit, proposing those the
+  /// plan names and those the request mentions (or the working directory
+  /// when neither names any).
+  Future<_CheckpointAnswer> _askRepositories() {
+    final Map<String, String> names = repositoryNames(_task.repositoryPaths);
+    final Map<String, String?> planned = plannedRepositories(_state.plan ?? '', _task.repositoryPaths);
+    final Set<String> mentioned = mentionedRepositories(_task.request, _task.repositoryPaths);
+    final Set<String> named = <String>{...planned.keys, ...mentioned};
+    final Set<String> proposed = named.isEmpty ? <String>{_task.repositoryPath} : named;
+    final List<WorkflowRepositoryChoice> choices = <WorkflowRepositoryChoice>[
+      for (final String repository in _task.repositoryPaths) WorkflowRepositoryChoice(path: repository, name: names[repository]!, proposed: proposed.contains(repository), reason: planned[repository] ?? (mentioned.contains(repository) ? 'Mentioned in your request' : null)),
+    ];
+    final String details = <String>[
+      for (final WorkflowRepositoryChoice choice in choices) '- ${choice.name} (${choice.path}): ${choice.proposed ? 'the plan changes it${choice.reason == null ? '' : ' — ${choice.reason}'}' : 'read only'}',
+    ].join('\n');
+    return _askUser(WorkflowCheckpointKind.repositories, 'Allow edits to these repositories?', details, repositories: choices);
+  }
 
   /// The self-review of the current round, also after a resume.
   Future<String?> _latestImplementationSummary() async {
@@ -470,14 +554,14 @@ final class WorkflowRun {
       final AgentAdapter adapter = _orchestrator._agents.require(agentId);
       final AgentEvent outcome = await _runOnce(adapter, role, phase, instructions, session);
       if (outcome is AgentCompletedEvent) {
-        _recordUsage(role, outcome.usage);
+        _recordUsage(role, agentId, outcome.usage);
         _emit(WorkflowAgentFinished(role: role, agentId: agentId, phase: phase, usage: outcome.usage, totalUsage: _state.totalUsage, timestamp: _now()));
         _enforceBudget();
         return outcome;
       }
 
       final AgentFailedEvent failure = outcome as AgentFailedEvent;
-      _recordUsage(role, failure.usage);
+      _recordUsage(role, agentId, failure.usage);
       _throwIfCancelled();
       _enforceBudget();
       switch (failure.kind) {
@@ -505,7 +589,7 @@ final class WorkflowRun {
           await _askUser(
             WorkflowCheckpointKind.agentUnavailable,
             failure.kind == AgentFailureKind.rateLimit ? '${adapter.displayName} reached a usage limit' : '${adapter.displayName} needs you to sign in',
-            '${failure.message}\n\n${signIn == null ? 'Retry when the limit resets, add a fallback agent for the ${role.name}, or cancel.' : 'Run `$signIn` in Terminal, then retry.'}',
+            '${failure.message}\n\n${signIn == null ? 'Retry when the limit resets, add a fallback agent or another account for the ${role.name}, or cancel.' : 'Run `$signIn` in Terminal, then retry.'}',
             role: role,
           );
           exhausted.clear();
@@ -529,6 +613,9 @@ final class WorkflowRun {
           resumeSessionId: session,
           mcpServers: _mcpServers,
           model: adapter.id == settings.assignments.agentIdFor(role) ? settings.modelOverrides[role] : null,
+          additionalDirectories: <AgentDirectoryAccess>[
+            for (final String repository in _task.additionalRepositoryPaths) AgentDirectoryAccess(path: repository, writable: role == AgentRole.implementer && _editableRepositories.contains(repository)),
+          ],
         ),
       );
     } on AgentStartException catch (error) {
@@ -562,9 +649,18 @@ final class WorkflowRun {
     return terminal ?? AgentFailedEvent(timestamp: _now(), message: '${adapter.displayName} ended without a result.');
   }
 
-  /// The next available fallback for [role] not in [exhausted].
+  /// The next available fallback for [role] not in [exhausted]: the
+  /// configured fallbacks first, then other accounts of the same agent.
   Future<String?> _nextFallback(AgentRole role, Set<String> exhausted) async {
-    for (final String id in settings.fallbackAgentIds[role] ?? const <String>[]) {
+    String agentOf(AgentAdapter adapter) => adapter.account?.agentId ?? adapter.id;
+    final AgentAdapter? current = _orchestrator._agents[agentFor(role)];
+    final List<String> candidates = <String>[
+      ...settings.fallbackAgentIds[role] ?? const <String>[],
+      if (current != null)
+        for (final AgentAdapter adapter in _orchestrator._agents.adapters)
+          if (adapter.id != current.id && agentOf(adapter) == agentOf(current)) adapter.id,
+    ];
+    for (final String id in candidates) {
       final AgentAdapter? adapter = _orchestrator._agents[id];
       if (adapter == null || exhausted.contains(id) || (_mcpServers.isNotEmpty && !adapter.supportsMcp)) {
         continue;
@@ -577,9 +673,10 @@ final class WorkflowRun {
     return null;
   }
 
-  void _recordUsage(AgentRole role, AgentUsage? usage) {
+  void _recordUsage(AgentRole role, String agentId, AgentUsage? usage) {
     if (usage != null) {
       _state.usage[role] = (_state.usage[role] ?? AgentUsage.zero) + usage;
+      _state.agentUsageRecords.add(WorkflowAgentUsageRecord(agentId: agentId, usage: usage, timestamp: _now()));
     }
   }
 
@@ -592,9 +689,9 @@ final class WorkflowRun {
   }
 
   /// Pauses until the user answers; a cancel ends the workflow.
-  Future<_CheckpointAnswer> _askUser(WorkflowCheckpointKind kind, String title, String details, {AgentRole? role}) async {
+  Future<_CheckpointAnswer> _askUser(WorkflowCheckpointKind kind, String title, String details, {AgentRole? role, List<WorkflowRepositoryChoice> repositories = const <WorkflowRepositoryChoice>[]}) async {
     _throwIfCancelled();
-    final WorkflowCheckpoint checkpoint = WorkflowCheckpoint(id: 'checkpoint-${++_checkpointCount}', kind: kind, title: title, details: details, role: role);
+    final WorkflowCheckpoint checkpoint = WorkflowCheckpoint(id: 'checkpoint-${++_checkpointCount}', kind: kind, title: title, details: details, role: role, repositories: repositories);
     final Completer<_CheckpointAnswer> answer = Completer<_CheckpointAnswer>();
     _checkpoint = checkpoint;
     _checkpointAnswer = answer;
@@ -634,19 +731,72 @@ final class WorkflowRun {
     return results;
   }
 
-  Future<String> _fingerprint() async => fingerprintRepository(await _orchestrator._git.readSnapshot(_task.repositoryPath));
+  /// Fingerprints of [repositories] (default: all of the workflow's), by path.
+  Future<Map<String, String>> _fingerprints([List<String>? repositories]) async => <String, String>{
+    for (final String repository in repositories ?? _task.repositoryPaths) repository: await fingerprintRepository(await _orchestrator._git.readSnapshot(repository)),
+  };
 
-  Future<void> _requireUnchanged(String before, AgentRole role) async {
-    if (await _fingerprint() != before) {
-      throw _WorkflowFailure('The ${role.name} changed the repository although its role is read-only.');
+  /// Fails when a repository in [before] changed: a read-only role must
+  /// change none, and the implementer none it was not allowed to edit.
+  Future<void> _requireUnchanged(Map<String, String> before, AgentRole role) async {
+    final Map<String, String> after = await _fingerprints(before.keys.toList());
+    for (final MapEntry<String, String>(:String key, :String value) in before.entries) {
+      if (after[key] != value) {
+        final String repository = _task.hasMultipleRepositories ? repositoryNames(_task.repositoryPaths)[key]! : 'the repository';
+        throw _WorkflowFailure(
+          role == AgentRole.implementer ? 'The implementer changed $repository, which you did not allow it to edit.' : 'The ${role.name} changed $repository although its role is read-only.',
+        );
+      }
     }
   }
 
+  /// No repository's `HEAD` or branch may move; only uncommitted edits are allowed.
   Future<void> _requireSameHead() async {
     final GitHead head = (await _orchestrator._git.readSnapshot(_task.repositoryPath)).head;
-    if (head.branch != _state.baselineBranch || head.commitSha != _state.baselineCommit) {
+    bool moved = head.branch != _state.baselineBranch || head.commitSha != _state.baselineCommit;
+    for (final MapEntry<String, WorkflowRepositoryHead>(:String key, :WorkflowRepositoryHead value) in _state.repositoryBaselines.entries) {
+      final GitHead other = (await _orchestrator._git.readSnapshot(key)).head;
+      moved = moved || other.branch != value.branch || other.commitSha != value.commit;
+    }
+    if (moved) {
       throw const _WorkflowFailure('The implementer moved HEAD (commit, checkout, or reset); only uncommitted edits are allowed.');
     }
+  }
+
+  /// Changed files of every repository, grouped by repository when there are several.
+  Future<String> _changedFiles() async {
+    final Map<String, String> names = repositoryNames(_task.repositoryPaths);
+    final List<String> sections = <String>[];
+    for (final String repository in _task.repositoryPaths) {
+      final GitRepositorySnapshot snapshot = await _orchestrator._git.readSnapshot(repository);
+      if (snapshot.entries.isEmpty) {
+        continue;
+      }
+      final String files = snapshot.entries.map((GitStatusEntry entry) => '- ${entry.path}').join('\n');
+      sections.add(_task.hasMultipleRepositories ? '${names[repository]}:\n$files' : files);
+    }
+    return sections.isEmpty ? 'No files changed.' : sections.join('\n\n');
+  }
+
+  /// The uncommitted diff of every repository for the reviewer, each under
+  /// its own heading when there are several; the size limit is shared.
+  Future<({String patch, bool isTruncated})> _diff() async {
+    if (!_task.hasMultipleRepositories) {
+      final GitDiff diff = await _orchestrator._git.readDiff(_task.repositoryPath, maxCharacters: _orchestrator.maxDiffCharacters);
+      return (patch: diff.patch, isTruncated: diff.isTruncated);
+    }
+    final Map<String, String> names = repositoryNames(_task.repositoryPaths);
+    final int share = _orchestrator.maxDiffCharacters ~/ _task.repositoryPaths.length;
+    final List<String> sections = <String>[];
+    bool truncated = false;
+    for (final String repository in _task.repositoryPaths) {
+      final GitDiff diff = await _orchestrator._git.readDiff(repository, maxCharacters: share);
+      truncated = truncated || diff.isTruncated;
+      if (!diff.isEmpty) {
+        sections.add('### Repository ${names[repository]} ($repository)\n${diff.patch}');
+      }
+    }
+    return (patch: sections.join('\n\n'), isTruncated: truncated);
   }
 
   Future<void> _saveArtifact(WorkflowArtifactKind kind, String content) async {

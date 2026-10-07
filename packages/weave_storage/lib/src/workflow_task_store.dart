@@ -14,6 +14,10 @@ abstract interface class WorkflowTaskStore {
   Future<WorkflowTask?> load(String taskId);
 
   Future<List<WorkflowTask>> list();
+
+  /// Removes the task and everything stored with it (artifacts, event log,
+  /// settings, run state). Never touches the repository the task worked on.
+  Future<void> delete(String taskId);
 }
 
 /// Stores each workflow in a dedicated directory outside source repositories.
@@ -50,6 +54,18 @@ final class FileWorkflowTaskStore implements WorkflowTaskStore {
       rethrow;
     } on Object catch (error, stackTrace) {
       throw WorkflowStorageException('Unable to load workflow task $taskId.', cause: error, stackTrace: stackTrace);
+    }
+  }
+
+  @override
+  Future<void> delete(String taskId) async {
+    final Directory directory = _taskDirectory(taskId);
+    try {
+      if (await directory.exists()) {
+        await directory.delete(recursive: true);
+      }
+    } on Object catch (error, stackTrace) {
+      throw WorkflowStorageException('Unable to delete workflow task $taskId.', cause: error, stackTrace: stackTrace);
     }
   }
 
